@@ -1,0 +1,41 @@
+{
+  "name": "zcode-worker-mcp",
+  "version": "0.1.0",
+  "description": "Lightweight, transparent MCP server to delegate coding tasks to ZCode with per-task model selection, detached worker survival, and real-time session observability.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "bin": {
+    "zcode-worker-mcp": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepare": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && node --test dist/**/*.test.js",
+    "start": "node dist/index.js"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "zcode",
+    "glm",
+    "coding-agent",
+    "orchestration"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.4.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.7",
+    "typescript": "^7.0.2"
+  }
+}
