@@ -132,11 +132,11 @@ claude mcp add zcode -- npx -y zcode-worker-mcp
    由宿主后台执行本地等待命令并直接结束当前 Agent 回合，彻底避免轮询消耗 Token：
 
    ```bash
-   zcode-worker-mcp wait <task_id_or_session_id> --timeout 3600 [--notify]
+   zcode-worker-mcp wait <task_id_or_session_id> --timeout 3600 [--heartbeat 60] [--quiet] [--no-notify]
    ```
 
-   - 本地静默检查 SQLite 与进程健康状态；一旦进入终态（`completed`、`failed`、`cancelled`、`stalled_or_exited`）或 `waiting_input`，立即向 stdout 输出单次 JSON 快照并退出 `0`（超时退出码 `124` 而不杀死后台任务，未找到退出码 `2`）。
-   - 传入 `--notify`（或 `--toast`）可在任务完结或需要交互时顺带弹出系统桌面提醒。
+   - **实时进度流（`stderr`）**：启动即输出任务、模型与 PID 存活性，后续按状态切换、Todo 推进、新工具调用与助手播报输出紧凑单行摘要，并在空闲时每 **60 秒**（可通过 `--heartbeat` 调整）打印一次存活性心跳（连续空闲超过 5 分钟自动标出 `[WARN idle >= 5m]`，进程异常标 `[WARN process]`），彻底消除后台面板 `Empty log` 盲区。
+   - **终态 JSON（`stdout`）与默认桌面提醒**：一旦进入终态（`completed`、`failed`、`cancelled`、`stalled_or_exited`）或 `waiting_input`，立即向 `stdout` 输出单次纯净 JSON 快照并默认弹出系统桌面完成提醒（`--no-notify` 可关闭、`--quiet` 可关闭进度日志），以退出码 `0` 退出（超时退出码 `124` 而不杀死后台任务，未找到退出码 `2`）。
 2. **可选方案 — 定期巡检：**
    当用户明确需要阶段性播报，或运行在不具备后台命令行唤醒能力的客户端时，可通过轻量子 Agent / 定时调度调用 `zcode_watch_session` 与 `zcode_inspect_session`。
 
@@ -156,7 +156,7 @@ MCP 客户端（Antigravity / Claude Code / Codex / Cursor）
    │                              ├── MCP 重启或断连时继续独立运行
    │                              ├── 持久化状态与交互请求到 state.sqlite（WAL）
    │                              └── 驱动 zcode.cjs app-server（--surface desktop）
-   └── 后台唤醒等待 ────► zcode-worker-mcp wait <task_id> [--notify]（零 LLM 轮询，完结即退出）
+   └── 后台唤醒等待 ────► zcode-worker-mcp wait <task_id>（stderr 实时进度+60s 心跳，完结输出 stdout JSON）
 ```
 
 ## 本地开发与测试

@@ -9,6 +9,11 @@ import type { TaskPackageInput } from "./types.js";
 
 const DEFAULT_TIMEOUT_SEC = 3600;
 
+function logStage(message: string): void {
+  const ts = new Date().toISOString();
+  process.stderr.write(`[${ts}] [worker] ${message}\n`);
+}
+
 async function main(): Promise<void> {
   const [, , dataRootArg, taskIdArg] = process.argv;
   if (!dataRootArg || !taskIdArg) {
@@ -38,6 +43,9 @@ async function main(): Promise<void> {
     const timeoutMs = Math.max(60, Math.min(14_400, taskInput.timeout_sec ?? DEFAULT_TIMEOUT_SEC)) * 1000;
     const execDir = path.resolve(task.execution_dir);
     const workspaceRoot = path.resolve(task.workspace);
+    logStage(
+      `started task=${task.task_id} attempt=${task.attempt} mode=${task.mode} pid=${process.pid} execDir="${execDir}"`,
+    );
 
     let resolveTurn!: (payload: { response: string; usage: Record<string, unknown> | null }) => void;
     let rejectTurn!: (err: Error) => void;
@@ -79,7 +87,9 @@ async function main(): Promise<void> {
         if (type === "turn.started") {
           if (turnId) activeTurnId = turnId;
           awaitingTurnStart = false;
+          logStage(`event=turn.started session=${activeSessionId ?? "-"} turn=${activeTurnId ?? "-"}`);
         } else if (type === "turn.completed") {
+          logStage(`event=turn.completed session=${activeSessionId ?? "-"} turn=${activeTurnId ?? "-"}`);
           const response = typeof payload["response"] === "string" ? payload["response"] : "";
           const usage =
             payload["usage"] && typeof payload["usage"] === "object" && !Array.isArray(payload["usage"])
@@ -90,16 +100,20 @@ async function main(): Promise<void> {
           const errObj = (payload["error"] && typeof payload["error"] === "object" ? payload["error"] : {}) as Record<string, unknown>;
           const msg = typeof errObj["message"] === "string" ? errObj["message"] : "ZCode turn failed";
           const code = typeof errObj["code"] === "string" ? errObj["code"] : "zcode_turn_failed";
+          logStage(`event=turn.failed code=${code} error=${msg}`);
           rejectTurn(Object.assign(new Error(msg), { code }));
         }
       },
       onInteractionRequest: async (requestId, method, params) => {
+        logStage(`interaction requested method=${method} requestId=${requestId}`);
         db.createInteraction(requestId, task.task_id, method, params);
         try {
           const reply = await waitForInteractionReply(db, task.task_id, requestId, timeoutMs);
+          logStage(`interaction replied requestId=${requestId}`);
           db.setStatus(task.task_id, "running");
           return reply;
         } catch (err) {
+          logStage(`interaction failed requestId=${requestId} error=${err instanceof Error ? err.message : String(err)}`);
           db.setStatus(task.task_id, "running");
           throw err;
         }
@@ -123,6 +137,7 @@ async function main(): Promise<void> {
     if (!sessionId) throw new Error("ZCode app-server did not return session.sessionId");
     activeSessionId = sessionId;
     db.updateRuntimeIdentity(task.task_id, { sessionId });
+    logStage(`session ready (${task.session_id ? "resumed" : "created"}) session=${sessionId}`);
 
     if (task.session_id) {
       await client.request("session/setMode", { sessionId, mode: task.mode });
@@ -145,6 +160,9 @@ async function main(): Promise<void> {
         (target.reasoningLevel !== undefined && catalog.current?.reasoning_level !== target.reasoningLevel);
 
       if (needsSwitch) {
+        logStage(
+          `setting session model -> ${target.providerId}/${target.modelId}${target.reasoningLevel ? ` (reasoning=${target.reasoningLevel})` : ""}`,
+        );
         await client.request("session/setModel", {
           sessionId,
           model: {
@@ -158,6 +176,10 @@ async function main(): Promise<void> {
       selectedProvider = target.providerId;
       selectedModel = target.modelId;
       selectedReasoning = target.reasoningLevel ?? catalog.current?.reasoning_level ?? null;
+    } else {
+      logStage(
+        `using default model -> ${selectedProvider ?? "-"}/${selectedModel ?? "-"}${selectedReasoning ? ` (reasoning=${selectedReasoning})` : ""}`,
+      );
     }
 
     db.updateRuntimeIdentity(task.task_id, {
@@ -192,8 +214,10 @@ async function main(): Promise<void> {
     });
 
     await client.request("session/send", { sessionId, content: task.prompt_text });
+    logStage(`prompt dispatched timeout=${Math.round(timeoutMs / 1000)}s`);
 
     const timeoutTimer = setTimeout(() => {
+      logStage(`timeout reached (${timeoutMs}ms)`);
       rejectTurn(Object.assign(new Error(`Task exceeded timeout (${timeoutMs} ms)`), { code: "task_timeout" }));
     }, timeoutMs);
     timeoutTimer.unref();
@@ -207,6 +231,7 @@ async function main(): Promise<void> {
       report,
       usage: turnResult.usage,
     });
+    logStage(`finished completed session=${sessionId}`);
     if (desktopEntry) updateDesktopTaskStatusSafe(desktopEntry, "completed");
   } catch (err) {
     settled = true;
@@ -215,6 +240,7 @@ async function main(): Promise<void> {
         ? (err as { code: string }).code
         : "worker_failed";
     const msg = err instanceof Error ? err.message : String(err);
+    logStage(`finished failed code=${code} error=${msg}`);
     db.finishFailed(task.task_id, code, msg);
     if (desktopEntry) updateDesktopTaskStatusSafe(desktopEntry, "error");
   } finally {

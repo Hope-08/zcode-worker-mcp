@@ -130,11 +130,11 @@ After `zcode_start` or `zcode_continue`, two complementary workflows are support
    Run the local blocker command in the background and end your agent turn so zero LLM polling tokens are burned while ZCode works:
 
    ```bash
-   zcode-worker-mcp wait <task_id_or_session_id> --timeout 3600 [--notify]
+   zcode-worker-mcp wait <task_id_or_session_id> --timeout 3600 [--heartbeat 60] [--quiet] [--no-notify]
    ```
 
-   - Checks SQLite & OS process health quietly without touching `stdout` until the task reaches a terminal state (`completed`, `failed`, `cancelled`, `stalled_or_exited`) or `waiting_input`, then prints a single JSON snapshot and exits `0` (`124` on timeout, `2` if not found).
-   - Pass `--notify` (or `--toast`) to also trigger a best-effort OS desktop notification.
+   - **Live progress stream (`stderr`)**: Immediately prints startup details, incremental state/Todo/tool/assistant updates, and a liveness heartbeat every **60s** (`--heartbeat`, flags `[WARN idle >= 5m]` or `[WARN process]` if stalled) so background task panels never sit on an empty log.
+   - **Pure JSON output (`stdout`) & desktop alert**: Once the task reaches a terminal state (`completed`, `failed`, `cancelled`, `stalled_or_exited`) or `waiting_input`, writes a single JSON snapshot to `stdout`, triggers an OS desktop notification by default (`--no-notify` to disable, `--quiet` to suppress progress logs), and exits `0` (`124` on timeout, `2` if not found).
 2. **Optional — Periodic inspection:**
    Use `zcode_watch_session` / `zcode_inspect_session` (or delegate to a lightweight watcher subagent / schedule) when periodic progress updates are desired or when the MCP client has no background shell wakeup.
 
@@ -151,7 +151,7 @@ MCP Client (Antigravity / Claude Code / Codex)
    │                                            ├── survives MCP server restart / EOF
    │                                            ├── stores state & interactions in state.sqlite (WAL)
    │                                            └── drives zcode.cjs app-server (--surface desktop)
-   └── background wait ─► zcode-worker-mcp wait <task_id> [--notify]  (0 LLM polling, exits on done/waiting_input)
+   └── background wait ─► zcode-worker-mcp wait <task_id>  (live progress on stderr + 60s heartbeat + stdout JSON)
 ```
 
 ## Development
